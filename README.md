@@ -29,5 +29,5 @@ A responsive web app for converting currencies with a 7-day prediction graph, re
 
 1. **Clone the repo**
    ```bash
-   git clone https://github.com/your-username/currency-converter-app.git
-   cd currency-converter-app
+   git clone https://github.com/Singh-Prajwal/remote.git
+   cd remote
