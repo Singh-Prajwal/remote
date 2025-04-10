@@ -16,8 +16,45 @@ interface Props {
   toCurrency: string;
 }
 
+interface RateData {
+  date: string;
+  rate: number | null;
+}
+
+interface CustomTooltipProps {
+  active?: boolean;
+  payload?: any;
+  label?: string;
+  from: string;
+  to: string;
+}
+
+const CustomTooltip: React.FC<CustomTooltipProps> = ({
+  active,
+  payload,
+  label,
+  from,
+  to,
+}) => {
+  if (active && payload?.length) {
+    return (
+      <div className="bg-white px-4 py-2 rounded-lg shadow-md border border-gray-200 text-sm">
+        <p className="font-semibold">{label}</p>
+        <p>
+          1 <span className="font-medium">{from}</span> ={" "}
+          <span className="text-indigo-600 font-bold">{payload[0].value}</span>{" "}
+          <span className="font-medium">{to}</span>
+        </p>
+      </div>
+    );
+  }
+  return null;
+};
+
+const formatDate = (d: Date): string => d.toISOString().split("T")[0];
+
 const CurrencyTrendChart: React.FC<Props> = ({ fromCurrency, toCurrency }) => {
-  const [data, setData] = useState<{ date: string; rate: number }[]>([]);
+  const [data, setData] = useState<RateData[]>([]);
   const [loading, setLoading] = useState(false);
   const [predictedRate, setPredictedRate] = useState<number | null>(null);
 
@@ -29,44 +66,57 @@ const CurrencyTrendChart: React.FC<Props> = ({ fromCurrency, toCurrency }) => {
         const startDate = new Date();
         startDate.setDate(endDate.getDate() - 6);
 
-        const format = (d: Date) => d.toISOString().split("T")[0];
-        const url = `https://api.frankfurter.dev/v1/${format(
+        const url = `https://api.frankfurter.dev/v1/${formatDate(
           startDate
-        )}..${format(endDate)}?base=${fromCurrency}&symbols=${toCurrency}`;
+        )}..${formatDate(endDate)}?base=${fromCurrency}&symbols=${toCurrency}`;
+
         const response = await axios.get(url);
         const rates = response.data.rates;
 
-        const formattedData = Object.entries(rates).map(([date, rateObj]) => ({
-          date,
-          rate: rateObj[toCurrency],
-        }));
+        const days: RateData[] = Array.from({ length: 7 }).map((_, i) => {
+          const date = new Date(startDate);
+          date.setDate(startDate.getDate() + i);
+          const dateStr = formatDate(date);
+          return {
+            date: dateStr,
+            rate: rates[dateStr]?.[toCurrency] ?? null,
+          };
+        });
 
-        setData(formattedData);
-        runPrediction(formattedData);
+        // Run prediction
+        const validRates = days.filter((d) => d.rate !== null) as {
+          date: string;
+          rate: number;
+        }[];
+
+        if (validRates.length >= 2) {
+          const x = validRates.map((_, i) => i);
+          const y = validRates.map((d) => d.rate);
+
+          const n = x.length;
+          const sumX = x.reduce((a, b) => a + b, 0);
+          const sumY = y.reduce((a, b) => a + b, 0);
+          const sumXY = x.reduce((acc, val, i) => acc + val * y[i], 0);
+          const sumXX = x.reduce((acc, val) => acc + val * val, 0);
+
+          const m = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+          const b = (sumY - m * sumX) / n;
+          const prediction = m * n + b;
+
+          setPredictedRate(prediction);
+
+          days.push({
+            date: "Tomorrow",
+            rate: prediction,
+          });
+        }
+
+        setData(days);
       } catch (err) {
         console.error("Error fetching historical data", err);
       } finally {
         setLoading(false);
       }
-    };
-
-    const runPrediction = (
-      trendData: { date: string; rate: number }[]
-    ): void => {
-      const x = trendData.map((_, i) => i); // 0 to 6
-      const y = trendData.map((d) => d.rate);
-
-      const n = x.length;
-      const sumX = x.reduce((a, b) => a + b, 0);
-      const sumY = y.reduce((a, b) => a + b, 0);
-      const sumXY = x.reduce((acc, val, i) => acc + val * y[i], 0);
-      const sumXX = x.reduce((acc, val) => acc + val * val, 0);
-
-      const m = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
-      const b = (sumY - m * sumX) / n;
-
-      const predicted = m * 7 + b; // x = 7 (next day)
-      setPredictedRate(predicted);
     };
 
     if (fromCurrency !== toCurrency) {
@@ -75,33 +125,52 @@ const CurrencyTrendChart: React.FC<Props> = ({ fromCurrency, toCurrency }) => {
   }, [fromCurrency, toCurrency]);
 
   return (
-    <div className="p-4 mt-6 bg-white rounded-2xl shadow-md">
-      <h3 className="text-lg font-semibold text-center mb-4">
-        7-Day Trend + Next Day Prediction
+    <div className="mt-8 bg-white p-6 md:p-8 rounded-2xl shadow-lg border border-gray-100">
+      <h3 className="text-xl font-semibold text-center text-gray-800 mb-6">
+        7-Day Exchange Rate Trend + Prediction
       </h3>
+
       {loading ? (
-        <p className="text-center text-blue-500">Loading chart...</p>
+        <p className="text-center text-indigo-500 font-medium">
+          Loading chart...
+        </p>
       ) : (
         <>
-          <ResponsiveContainer width="100%" height={400}>
-            <LineChart data={data}>
-              <CartesianGrid strokeDasharray="4 4" />
-              <XAxis dataKey="date" />
-              <YAxis domain={["auto", "auto"]} />
-              <Tooltip />
-              <Line
-                type="monotone"
-                dataKey="rate"
-                stroke="#4F46E5"
-                strokeWidth={2}
-                dot={{ r: 4 }}
-                activeDot={{ r: 6 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-          {predictedRate !== null && (
-            <p className="text-center text-sm text-gray-700 mt-2">
-              <strong>Prediction:</strong> Tomorrow's estimated rate ={" "}
+          <div className="w-full h-[400px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={data}>
+                <CartesianGrid strokeDasharray="4 4" stroke="#e5e7eb" />
+                <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+                <YAxis
+                  domain={["auto", "auto"]}
+                  tick={{ fontSize: 12 }}
+                  width={60}
+                />
+                <Tooltip
+                  content={(props) => (
+                    <CustomTooltip
+                      {...props}
+                      from={fromCurrency}
+                      to={toCurrency}
+                    />
+                  )}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="rate"
+                  stroke="#6366F1"
+                  strokeWidth={2}
+                  dot={{ r: 4 }}
+                  activeDot={{ r: 6 }}
+                  connectNulls
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+
+          {predictedRate && (
+            <p className="mt-4 text-center text-sm text-gray-600">
+              <strong>Tomorrow's Predicted Rate:</strong>{" "}
               <span className="text-green-600 font-bold">
                 {predictedRate.toFixed(4)} {toCurrency}
               </span>
@@ -114,3 +183,149 @@ const CurrencyTrendChart: React.FC<Props> = ({ fromCurrency, toCurrency }) => {
 };
 
 export default CurrencyTrendChart;
+
+// "use client";
+// import React, { useEffect, useState } from "react";
+// import axios from "axios";
+// import {
+//   LineChart,
+//   Line,
+//   XAxis,
+//   YAxis,
+//   Tooltip,
+//   ResponsiveContainer,
+//   CartesianGrid,
+// } from "recharts";
+
+// interface Props {
+//   fromCurrency: string;
+//   toCurrency: string;
+// }
+
+// interface RateData {
+//   date: string;
+//   rate: number | null;
+// }
+
+// interface CustomTooltipProps {
+//   active?: boolean;
+//   payload?: any;
+//   label?: string;
+//   from: string;
+//   to: string;
+// }
+
+// const CustomTooltip: React.FC<CustomTooltipProps> = ({
+//   active,
+//   payload,
+//   label,
+//   from,
+//   to,
+// }) => {
+//   if (active && payload?.length) {
+//     return (
+//       <div className="bg-white px-4 py-2 rounded-lg shadow-md border border-gray-200 text-sm">
+//         <p className="font-semibold">{label}</p>
+//         <p>
+//           1 <span className="font-medium">{from}</span> ={" "}
+//           <span className="text-indigo-600 font-bold">{payload[0].value}</span>{" "}
+//           <span className="font-medium">{to}</span>
+//         </p>
+//       </div>
+//     );
+//   }
+//   return null;
+// };
+
+// const formatDate = (d: Date): string => d.toISOString().split("T")[0];
+
+// const CurrencyTrendChart: React.FC<Props> = ({ fromCurrency, toCurrency }) => {
+//   const [data, setData] = useState<RateData[]>([]);
+//   const [loading, setLoading] = useState(false);
+
+//   useEffect(() => {
+//     const fetchHistoricalRates = async () => {
+//       setLoading(true);
+//       try {
+//         const endDate = new Date();
+//         const startDate = new Date();
+//         startDate.setDate(endDate.getDate() - 6);
+
+//         const url = `https://api.frankfurter.dev/v1/${formatDate(
+//           startDate
+//         )}..${formatDate(endDate)}?base=${fromCurrency}&symbols=${toCurrency}`;
+
+//         const response = await axios.get(url);
+//         const rates = response.data.rates;
+
+//         const days: RateData[] = Array.from({ length: 7 }).map((_, i) => {
+//           const date = new Date(startDate);
+//           date.setDate(startDate.getDate() + i);
+//           const dateStr = formatDate(date);
+//           return {
+//             date: dateStr,
+//             rate: rates[dateStr]?.[toCurrency] ?? null,
+//           };
+//         });
+
+//         setData(days);
+//       } catch (err) {
+//         console.error("Error fetching historical data", err);
+//       } finally {
+//         setLoading(false);
+//       }
+//     };
+
+//     if (fromCurrency !== toCurrency) {
+//       fetchHistoricalRates();
+//     }
+//   }, [fromCurrency, toCurrency]);
+
+//   return (
+//     <div className="mt-8 bg-white p-6 md:p-8 rounded-2xl shadow-lg border border-gray-100">
+//       <h3 className="text-xl font-semibold text-center text-gray-800 mb-6">
+//         7-Day Exchange Rate Trend
+//       </h3>
+
+//       {loading ? (
+//         <p className="text-center text-indigo-500 font-medium">
+//           Loading chart...
+//         </p>
+//       ) : (
+//         <div className="w-full h-[400px]">
+//           <ResponsiveContainer width="100%" height="100%">
+//             <LineChart data={data}>
+//               <CartesianGrid strokeDasharray="4 4" stroke="#e5e7eb" />
+//               <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+//               <YAxis
+//                 domain={["auto", "auto"]}
+//                 tick={{ fontSize: 12 }}
+//                 width={60}
+//               />
+//               <Tooltip
+//                 content={(props) => (
+//                   <CustomTooltip
+//                     {...props}
+//                     from={fromCurrency}
+//                     to={toCurrency}
+//                   />
+//                 )}
+//               />
+//               <Line
+//                 type="monotone"
+//                 dataKey="rate"
+//                 stroke="#6366F1"
+//                 strokeWidth={2}
+//                 dot={{ r: 4 }}
+//                 activeDot={{ r: 6 }}
+//                 connectNulls
+//               />
+//             </LineChart>
+//           </ResponsiveContainer>
+//         </div>
+//       )}
+//     </div>
+//   );
+// };
+
+// export default CurrencyTrendChart;
