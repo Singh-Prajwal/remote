@@ -21,7 +21,6 @@ A responsive web app for converting currencies with a 7-day prediction graph, re
 - Recharts
 - Redux Persist
 - TypeScript
-- Jest for Unit Testing
 
 ---
 
@@ -31,3 +30,17 @@ A responsive web app for converting currencies with a 7-day prediction graph, re
    ```bash
    git clone https://github.com/Singh-Prajwal/remote.git
    cd remote
+
+
+
+2. **Install dependencies**
+   npm install
+
+
+3. **Start the app**
+   npm run dev
+
+
+
+4. **Run Tests**
+   npm run test
